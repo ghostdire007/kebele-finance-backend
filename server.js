@@ -43,9 +43,6 @@ app.use((req, res, next) => {
   next()
 })
 
-// Handle preflight requests
-app.options("*", cors(corsOptions))
-
 console.log("🔍 Connection Diagnostics:")
 console.log("   MongoDB URI format:", MONGODB_URI.split("@")[1]?.split("/")[0] || "Invalid")
 console.log("   Using environment variable:", process.env.MONGODB_ATLAS_URI ? "YES" : "NO (using fallback)")
