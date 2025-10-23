@@ -13,23 +13,44 @@ const MONGODB_URI =
   "mongodb+srv://esrael202324_db_user:dL3OX5FeftPpBiOB@kfs-cluster.mnixxot.mongodb.net/kfs_db?retryWrites=true&w=majority&appName=kfs-cluster"
 
 const connectionOptions = {
-  serverSelectionTimeoutMS: 30000, // Increased to 30 seconds
-  connectTimeoutMS: 30000, // 30 second connection timeout
+  serverSelectionTimeoutMS: 30000,
+  connectTimeoutMS: 30000,
   socketTimeoutMS: 45000,
-  family: 4, // Force IPv4
+  family: 4,
   retryWrites: true,
   retryReads: true,
   maxPoolSize: 10,
 }
 
+const corsOptions = {
+  origin: "*", // Allow all origins for mobile clients
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: false,
+  optionsSuccessStatus: 200,
+}
+
 // Middleware
-app.use(cors())
+app.use(cors(corsOptions))
 app.use(express.json())
+
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*")
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+  res.header("X-Content-Type-Options", "nosniff")
+  res.header("X-Frame-Options", "DENY")
+  next()
+})
+
+// Handle preflight requests
+app.options("*", cors(corsOptions))
 
 console.log("🔍 Connection Diagnostics:")
 console.log("   MongoDB URI format:", MONGODB_URI.split("@")[1]?.split("/")[0] || "Invalid")
 console.log("   Using environment variable:", process.env.MONGODB_ATLAS_URI ? "YES" : "NO (using fallback)")
 console.log("   Connection timeout:", connectionOptions.serverSelectionTimeoutMS / 1000, "seconds")
+console.log("   CORS enabled for all origins (mobile clients)")
 console.log("\n⏳ Attempting to connect to MongoDB Atlas...")
 
 let connectionAttempts = 0
@@ -62,7 +83,7 @@ async function connectWithRetry() {
     }
 
     if (connectionAttempts < maxRetries) {
-      const retryDelay = connectionAttempts * 5000 // 5s, 10s, 15s
+      const retryDelay = connectionAttempts * 5000
       console.log(`\n⏳ Retrying in ${retryDelay / 1000} seconds...`)
       setTimeout(connectWithRetry, retryDelay)
     } else {
@@ -73,7 +94,6 @@ async function connectWithRetry() {
   }
 }
 
-// Start connection
 connectWithRetry()
 
 mongoose.connection.on("disconnected", () => {
@@ -100,7 +120,6 @@ const checkDatabaseConnection = (req, res, next) => {
   next()
 }
 
-// Apply the middleware to all API routes
 app.use("/api", checkDatabaseConnection)
 
 app.get("/api/health", (req, res) => {
@@ -108,6 +127,7 @@ app.get("/api/health", (req, res) => {
     status: "ok",
     message: "Server is running",
     database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    timestamp: new Date().toISOString(),
   })
 })
 
@@ -163,6 +183,43 @@ app.get("/api/users/findOne", async (req, res) => {
     res.json(user)
   } catch (error) {
     console.error("[v0] Error finding user:", error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.post("/api/users/login", async (req, res) => {
+  try {
+    const { username, password } = req.body
+    console.log("[v0] Login attempt for user:", username)
+
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password are required" })
+    }
+
+    const user = await mongoose.connection.db.collection("users").findOne({ username: username })
+
+    if (!user) {
+      console.log("[v0] Login failed: User not found:", username)
+      return res.status(401).json({ error: "Invalid username or password" })
+    }
+
+    // Simple password comparison (in production, use bcrypt)
+    if (user.password !== password) {
+      console.log("[v0] Login failed: Invalid password for user:", username)
+      return res.status(401).json({ error: "Invalid username or password" })
+    }
+
+    console.log("[v0] Login successful for user:", username, "Role:", user.role)
+
+    // Return user data without password
+    const { password: _, ...userWithoutPassword } = user
+    res.json({
+      success: true,
+      user: userWithoutPassword,
+      message: "Login successful",
+    })
+  } catch (error) {
+    console.error("[v0] Error during login:", error)
     res.status(500).json({ error: error.message })
   }
 })
